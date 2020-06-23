@@ -51,7 +51,7 @@ df_northeast <- df_us_counties %>%
 
 df_northeast %>% 
   ggplot(aes(fill = value)) +
-    geom_sf() +
+    geom_sf(color = NA) +
     scale_fill_viridis_c() +
     theme_void()
 
@@ -62,7 +62,7 @@ df_northeast_hex <- assign_polygons(df_northeast, northeast_new_cells_hex) %>%
 
 df_northeast_hex %>% 
   ggplot(aes(fill = value)) +
-    geom_sf() +
+    geom_sf(color = NA) +
     scale_fill_viridis_c() +
     theme_void()
 
@@ -89,3 +89,71 @@ df_northeast %>%
     scale_fill_viridis_c() +
     theme_void()
 
+
+#calculate grid
+df_us_counties_test_hex <- calculate_grid(shape = df_us_counties_test, grid_type = "hexagonal", seed = 3)
+
+#reassign polygons
+df_us_counties_hex <- assign_polygons(df_us_counties_test, df_us_counties_test_hex) %>% 
+  mutate(polygon_type = "hex")
+
+df_us_counties_hex %>% 
+  ggplot() +
+  geom_sf() +
+  theme_void()
+
+
+#test wv and PA
+df_wv <- df_us_counties %>% 
+  filter(state == "West Virginia")
+
+df_pa <- df_us_counties %>% 
+  filter(state == "Pennsylvania")
+
+#wv
+df_wv_hex <- calculate_grid(shape = df_wv, grid_type = "hexagonal", seed = 3)
+
+df_wv_hex <- assign_polygons(df_wv, df_wv_hex) %>% 
+  mutate(polygon_type = "hex")
+
+#pa
+df_pa_hex <- calculate_grid(shape = df_pa, grid_type = "hexagonal", seed = 3)
+
+df_pa_hex <- assign_polygons(df_pa, df_pa_hex) %>% 
+  mutate(polygon_type = "hex")
+
+df_wv_hex %>% 
+  bind_rows(df_pa_hex) %>% 
+  ggplot(aes(fill = state)) +
+  geom_sf()
+
+#inspect
+class(df_us_counties_test_hex)
+
+df_hex_centroids <- df_us_counties_test_hex[[1]]@coords %>% 
+  as_tibble()
+
+df_us_counties_test %>% 
+  bind_cols(df_hex_centroids) %>% 
+  ggplot(aes(x, y, color = log10(value))) +
+  geom_point() +
+  scale_color_viridis_c() +
+  theme_void()
+
+df_hex_centroids %>% 
+  ggplot(aes(x, y)) +
+  geom_point()
+
+df_us_counties_hex[[1]] %>% 
+  str()
+
+df_us_counties_hex[[2]] %>% 
+  .[1]
+
+str(df_us_counties_hex)
+
+df_us_counties_hex[[2]]$
+  
+  str(df_us_counties_hex[[2]])
+
+df_us_counties_hex[[2]]@ID2
