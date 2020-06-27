@@ -8,7 +8,7 @@ library(gifski)
 
 options(scipen = 999, digits = 2)
 
-theme_set(theme_ipsum())
+theme_set(theme_ipsum(base_size = 15))
 
 us_not_shifted <- get_decennial(geography = "state", variables = "P001001", geometry = TRUE) %>%
   mutate(centroid = st_centroid(geometry)) %>% 
@@ -78,27 +78,34 @@ df %>%
   scale_y_comma()
 
 #tile charts
-df %>% 
+national_tile_chart <- df %>% 
   mutate(state = factor(state, levels = state_fct)) %>% 
   complete(state, date, fill = list(cases = NA)) %>% 
   semi_join(us_shifted %>% distinct(NAME), by = c("state" = "NAME")) %>% 
   left_join(us_shifted %>% select(NAME, value) %>% st_drop_geometry(), by = c("state" = "NAME")) %>% 
   mutate(cases_new_per_capita = (cases_new / value) * 100000) %>% 
   complete(state, days_since_10_cases, fill = list(cases_new_per_capita = NA)) %>% 
-  filter(state != "NA",
-         state != "Puerto Rico",
+  filter(state != "Puerto Rico",
          days_since_10_cases > 0) %>% 
   ggplot(aes(days_since_10_cases, state, fill = cases_new_per_capita)) +
   geom_tile() +
-  scale_fill_viridis_c(na.value = "grey50") +
+  scale_fill_viridis_c(na.value = "black") +
   scale_x_continuous(expand = c(0,0)) +
   scale_y_discrete(expand = c(0,0)) +
   coord_fixed(ratio = 5) +
-  labs(x = "Days since 10th COVID-19 case",
+  labs(title = "National COVID-19 case tile chart",
+       subtitle = "Adjusted per 100,000 population (2010 Census)",
+       x = "Days since 10th COVID-19 case",
        y = NULL,
-       fill = "New cases per 100,000") +
+       fill = "New cases") +
   theme(panel.grid.major = element_blank(),
-        panel.grid.minor = element_blank())
+        panel.grid.minor = element_blank(),
+        legend.position = "bottom")
+
+national_tile_chart
+
+national_tile_chart %>% 
+  ggsave(filename = "output/national_tile_chart.png", width = 8, height = 16)
 
 #map
 df_recent <- df %>% 
