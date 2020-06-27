@@ -123,7 +123,7 @@ time_series <- surrounding_counties_covid %>%
   # ungroup() %>% 
   left_join(nyc_covid, by = c("date"))
 
-time_series_nested <- time_series %>% 
+time_series_geo_nested <- time_series %>% 
   #select(-c(state, county)) %>% 
   filter(!is.na(cases_new_rolling_14),
          !is.na(cases_new_rolling_14_nyc)) %>% 
@@ -133,20 +133,22 @@ time_series_nested <- time_series %>%
   #hoist(data, date = "date")
   unnest_wider(data)
 
-time_series_nested %>% 
+time_series_geo_nested %>% 
   ggplot(aes(rsq)) +
   geom_histogram()
 
 df_us_counties %>% 
-  left_join(time_series_nested %>% select(state, county, rsq)) %>% 
+  left_join(time_series_geo_nested %>% select(state, county, rsq)) %>% 
   ggplot() +
   geom_sf(aes(fill = rsq)) +
   geom_sf(data = df_us_states, color = "white", fill = NA, inherit.aes = FALSE) +
+  geom_sf(data = df_us_counties %>% filter(county == "New York City County"), color = "red") +
   scale_fill_viridis_c() +
+  #scale_color_manual(values = c("black", "red")) +
   theme_void() +
   theme(panel.background = element_rect(fill = "black"))
 
-time_series_nested %>% 
+time_series_geo_nested %>% 
   ungroup() %>% 
   select(state, county, rsq) %>% 
   mutate(id = str_c(state, county, sep = ", "),
@@ -154,5 +156,44 @@ time_series_nested %>%
   arrange(id) %>% 
   ggplot(aes(rsq, id)) +
   geom_point() +
-  facet_wrap(~state, scales = "free_y") +
+  facet_wrap(~state, scales = "free_y", nrow = 3) +
   tidytext::scale_y_reordered()
+
+
+#distance
+nyc_geo <- df_us_counties %>% 
+  filter(state == "New York",
+         county == "New York City County") %>% 
+  rename(geometry_nyc = geometry) %>% 
+  mutate(geometry_nyc = st_centroid(geometry_nyc)) %>% 
+  select(geometry_nyc) %>% 
+  pull()
+
+df_distance <- surrounding_ny_counties %>% 
+  filter(state == "New York") %>% 
+  mutate(geometry_nyc = nyc_geo,
+         county_centroid = st_centroid(geometry))
+
+df_distance <- df_distance %>% 
+  mutate(distance_to_nyc = map2_dbl(county_centroid, nyc_geo, st_distance))
+
+df_distance %>% 
+  ggplot() +
+  geom_sf(aes(fill = distance_to_nyc)) +
+  scale_fill_viridis_c()
+
+
+distance_anim <- df_distance %>% 
+  ggplot(aes(cases_new, distance_to_nyc)) +
+  geom_point() +
+  labs(title = "Date: {frame_time}",
+       subtitle = "Counties from PA, NY, VT, RI, CT, MA",
+       x = "Daiy new cases",
+       y = "Distance to NYC in meters") +
+  scale_y_comma() +
+  scale_x_comma() +
+  transition_time(date) +
+  ease_aes('cubic-in-out')
+
+distance_anim %>% 
+  anim_save(filename = "output/distance_point_chart.gif", fps = 30, duration = 20, end_pause = 10)
