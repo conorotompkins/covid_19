@@ -26,7 +26,8 @@ df <- read_csv("https://raw.githubusercontent.com/nytimes/covid-19-data/master/u
     na.rm      = TRUE,
     # tq_mutate args
     col_rename = "cases_new_rolling_14"
-  )
+  ) %>% 
+  ungroup()
 
 df %>% 
   ggplot(aes(date, cases)) +
