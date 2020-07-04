@@ -136,12 +136,49 @@ waves %>%
          days_until_peak_2 = sum(days_until_peak == 0) + 1) %>% 
   View()
 
-%>% 
-  summarize(days_until_peak = max(days_until_peak)) %>% 
-  ggplot(aes(wave, days_until_peak)) +
-  geom_col()
+waves %>% 
+  select(wave, days_since_wave_started, cases_new_rolling_14, pct_change, peaks) %>% 
+  View()
+
+wave_3_forecast <- waves %>% 
+  select(wave, days_since_wave_started, pct_change) %>% 
+  filter(wave == 3) %>% 
+  complete(days_since_wave_started = seq(0, 100)) %>%
+  replace_na(list(wave = 3))
+
+wave_3 <- waves %>% 
+  filter(wave == 3) 
+
+waves %>% 
+  lm(pct_change ~ days_since_wave_started, data = .) %>% 
+  tidy()
+
+waves %>% 
+  filter(wave != 3) %>% 
+  lm(pct_change ~ days_since_wave_started, data = .) %>% 
+  augment(newdata = wave_3_forecast) %>% 
+  View()
 
 
+
+loess_mod <- loess(pct_change ~ days_since_wave_started, data = wave_3)
+
+parsnip::lo
+
+  fit()
+  View()
+  
+
+wave_3_shape %>% 
+  %>% 
+  View()
+
+
+  ggplot(aes(days_since_wave_started)) +
+  geom_line(aes(y = pct_change)) +
+  geom_ribbon(aes(ymin = .fitted - .se.fit, ymax = .fitted + .se.fit), 
+              fill = "red", alpha = .3) +
+  geom_line(aes(y = .fitted), color = "red")
 
 
 
