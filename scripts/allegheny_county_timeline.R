@@ -20,9 +20,38 @@ df <- read_csv("https://raw.githubusercontent.com/FranklinChen/covid-19-alleghen
 #replace deaths on July 7th with NA
 #The deaths reported today are from the state’s use of the Electronic Data Reporting System (EDRS) and include #deaths from April 5 – June 13, all decedents were 65 or older.
 #https://twitter.com/HealthAllegheny/status/1280517051589722117?s=20
+
 df <- df %>% 
   mutate(deaths = case_when(date == "2020-07-07" ~ NA_real_,
                             date != "2020-07-07" ~ deaths))
+
+#replace deaths on June 4th with NA
+# This is the COVID-19 Daily Update or June 4, 2020. 
+# The data reflected in these updates include information reported to the department
+# in the past 24 hours as well as data since March 14 when the first case was reported in the county.
+#https://twitter.com/HealthAllegheny/status/1268558422242463748?s=20
+df <- df %>% 
+  mutate(deaths = case_when(date == "2020-06-04" ~ NA_real_,
+                            date != "2020-06-04" ~ deaths))
+
+
+#The data reflected in these updates include info reported in the past 24 hours
+#as well as data since March 14 when the first case was reported in the county.
+#https://twitter.com/HealthAllegheny/status/1260587935289704449?s=20
+df <- df %>% 
+  mutate(deaths = case_when(date == "2020-05-13" ~ NA_real_,
+                            date != "2020-05-13" ~ deaths))
+
+#https://twitter.com/HealthAllegheny/status/1250801169989074944?s=20
+df <- df %>% 
+  mutate(deaths = case_when(date == "2020-04-16" ~ NA_real_,
+                            date != "2020-04-16" ~ deaths))
+
+#https://twitter.com/HealthAllegheny/status/1275805982522855424?s=20
+df <- df %>% 
+  mutate(deaths = case_when(date == "2020-06-24" ~ NA_real_,
+                            date != "2020-06-24" ~ deaths))
+
 
 df <- df %>% 
   ##replace negative case/hospitalization/death values with 0
@@ -86,8 +115,7 @@ df <- df %>%
     na.rm      = TRUE,
     # tq_mutate args
     col_rename = "deaths_new_rolling_14"
-  ) %>% 
-  select(state, county, date, contains("_new"), contains("rolling"))
+  )
 
 #glimpse(df)
 
@@ -143,16 +171,16 @@ df_new <- df_new %>%
 # first(df_new$date)
 
 #preview rolling data
-df_rolling %>% 
-  ggplot(aes(date, value)) +
-  geom_line() +
-  facet_wrap(~metric, ncol = 1, scales = "free_y")
-
-#preview daily data
-df_new %>% 
-  ggplot(aes(date, value_clean)) +
-  geom_point() +
-  facet_wrap(~metric, ncol = 1, scales = "free_y")
+# df_rolling %>% 
+#   ggplot(aes(date, value)) +
+#   geom_line() +
+#   facet_wrap(~metric, ncol = 1, scales = "free_y")
+# 
+# #preview daily data
+# df_new %>% 
+#   ggplot(aes(date, value_clean)) +
+#   geom_point() +
+#   facet_wrap(~metric, ncol = 1, scales = "free_y")
 
 #find most recent date
 last_updated <- last(df_rolling$date)
@@ -269,6 +297,9 @@ combined_graph <- main_graph + sub_graph +
 print(combined_graph)
 }
 
-make_combined_graph(choose_metric = "New cases") %>% 
+make_combined_graph(choose_metric = "New deaths") 
+
+
+
   ggsave(filename = "output/ac_timeline/combined/test.png")
 
