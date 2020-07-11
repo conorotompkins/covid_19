@@ -243,37 +243,37 @@ allegheny_county_timeline %>%
 
 #need to make functions to make one combined chart per metric
 #need to make one function to knit 3 charts together
+###cases
 make_combined_graph <- function(choose_metric){
   
   main_graph <- df_rolling %>% 
     filter(metric == choose_metric) %>% 
     ggplot(aes(date, value)) +
     #create colored rectangles showing various government intervention timelines
-    # annotate(geom = "rect", xmin = ymd("2020-03-23"), xmax = ymd("2020-05-15"), ymin = as.Date(-Inf), ymax = as.Date(Inf), 
-    #          fill = "red", alpha = .3) +
-    # annotate(geom = "rect", xmin = ymd("2020-05-15"), xmax = ymd("2020-06-05"), ymin = as.Date(-Inf), ymax = as.Date(Inf), 
-    #          fill = "yellow", alpha = .3) +
-    # annotate(geom = "rect", xmin = ymd("2020-06-05"), xmax = ymd("2020-06-28"), ymin = as.Date(-Inf), ymax = as.Date(Inf), 
-    #          fill = "green", alpha = .3) +
-    # annotate(geom = "rect", xmin = ymd("2020-06-28"), xmax = as.Date(Inf), ymin = as.Date(-Inf), ymax = as.Date(Inf),
-    #          fill = "#aaff00", alpha = .3) +
+    annotate(geom = "rect", xmin = ymd("2020-03-23"), xmax = ymd("2020-05-15"), ymin = as.Date(-Inf), ymax = as.Date(Inf),
+             fill = "red", alpha = .3) +
+    annotate(geom = "rect", xmin = ymd("2020-05-15"), xmax = ymd("2020-06-05"), ymin = as.Date(-Inf), ymax = as.Date(Inf),
+             fill = "yellow", alpha = .3) +
+    annotate(geom = "rect", xmin = ymd("2020-06-05"), xmax = ymd("2020-06-28"), ymin = as.Date(-Inf), ymax = as.Date(Inf),
+             fill = "green", alpha = .3) +
+    annotate(geom = "rect", xmin = ymd("2020-06-28"), xmax = as.Date(Inf), ymin = as.Date(-Inf), ymax = as.Date(Inf),
+             fill = "#aaff00", alpha = .3) +
     #plot daily data as points, rolling average as lines
-    geom_point(data = filter(df_new, metric == choose_metric),  aes(y = value), alpha = .3)+
+    geom_point(data = filter(df_new, metric == choose_metric),  aes(y = value_clean), alpha = .3)+
     geom_line(size = 1.5) +
-    geom_vline(data = filter(df_new, metric == choose_metric, new_record == TRUE), aes(xintercept = date), color = "red") +
+    #geom_vline(data = filter(df_new, metric == choose_metric, new_record == TRUE), aes(xintercept = date), color = "red") +
     #facet by metric
-    #facet_wrap(~metric, ncol = 1, scales = "free_y") +
-    labs(title = str_c("Allegheny County COVID-19 response timeline (last updated ", last_updated, ")"),
-         x = NULL,
-         y = NULL,
-         subtitle = "14-day rolling average") +
+    facet_wrap(~metric, ncol = 1, scales = "free_y") +
+    scale_y_continuous(breaks = scales::pretty_breaks()) +
+    labs(x = NULL,
+         y = NULL) +
     theme(plot.margin = unit(c(0, 0, 0, 0), "cm"),
           axis.text.x = element_blank())
   
   sub_graph <- df_new %>% 
     filter(metric == choose_metric) %>% 
     ggplot(aes(date, y = 1, fill = new_record)) +
-    geom_tile(color = "black") +
+    geom_tile(color = "white") +
     coord_equal() +
     scale_fill_manual(values = c("white", "black"), guide = FALSE) +
     theme_void() +
@@ -288,18 +288,23 @@ make_combined_graph <- function(choose_metric){
   
   
 combined_graph <- main_graph + sub_graph +
-  plot_layout(design = layout) +
-  plot_annotation(caption = "@conor_tompkins, data from Allegheny County via Franklin Chen",
-                  #theme = theme(plot.margin = unit(c(0, 0, 0, 0), "cm"))
-                  )
-  
-
-print(combined_graph)
+  plot_layout(design = layout)
 }
 
-make_combined_graph(choose_metric = "New deaths") 
+plots <- df_rolling %>% 
+  mutate(metric = as.character(metric)) %>% 
+  distinct(metric) %>% 
+  pull(metric) %>% 
+  as.list() %>% 
+  set_names() %>% 
+  map(~make_combined_graph(choose_metric = .x))
 
 
+final_plot <- wrap_plots(plots, ncol = 1) +
+  plot_annotation(title = str_c("Allegheny County COVID-19 response timeline (last updated ", last_updated, ")"), 
+                  subtitle = "14-day rolling average",
+                  caption = "@conor_tompkins, data from Allegheny County via Franklin Chen")
 
-  ggsave(filename = "output/ac_timeline/combined/test.png")
+final_plot %>% 
+  ggsave(filename = str_c("output/ac_timeline/combined/combo_graph_", last_updated , ".png"), width = 12, height = 8)
 
