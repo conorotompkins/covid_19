@@ -153,6 +153,9 @@ df_change %>%
 
 
 #changepoint library
+#http://members.cbio.mines-paristech.fr/~thocking/change-tutorial/RK-CptWorkshop.html
+#https://www.marinedatascience.co/blog/2019/09/28/comparison-of-change-point-detection-methods/
+
 library(changepoint)
 
 changepoints <- df %>% 
