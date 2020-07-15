@@ -10,6 +10,20 @@ theme_set(theme_ipsum(base_size = 15, strip_text_size = 15, axis_title_size = 15
 
 options(scipen = 999, digits = 4)
 
+bad_data <- tribble(
+  ~metric, ~date,
+  "deaths", "2020-07-07",
+  "deaths", "2020-06-04",
+  "deaths", "2020-05-13",
+  "deaths", "2020-04-16",
+  "deaths", "2020-06-24",
+  "cases", "2020-07-14",
+  "cases", "2020-07-13"
+) %>% 
+  mutate(metric = str_c(metric, "_new"),
+         date = ymd(date),
+         flag_bad_data = TRUE)
+
 #read in data
 df <- read_csv("https://raw.githubusercontent.com/FranklinChen/covid-19-allegheny-county/master/covid-19-allegheny-county.csv") %>% 
   mutate(state = "Pennsylvania",
@@ -21,36 +35,39 @@ df <- read_csv("https://raw.githubusercontent.com/FranklinChen/covid-19-alleghen
 #The deaths reported today are from the state’s use of the Electronic Data Reporting System (EDRS) and include #deaths from April 5 – June 13, all decedents were 65 or older.
 #https://twitter.com/HealthAllegheny/status/1280517051589722117?s=20
 
-df <- df %>% 
-  mutate(deaths = case_when(date == "2020-07-07" ~ NA_real_,
-                            date != "2020-07-07" ~ deaths))
+
+
+
+# df <- df %>% 
+#   mutate(deaths = case_when(date == "2020-07-07" ~ NA_real_,
+#                             date != "2020-07-07" ~ deaths))
 
 #replace deaths on June 4th with NA
 # This is the COVID-19 Daily Update or June 4, 2020. 
 # The data reflected in these updates include information reported to the department
 # in the past 24 hours as well as data since March 14 when the first case was reported in the county.
 #https://twitter.com/HealthAllegheny/status/1268558422242463748?s=20
-df <- df %>% 
-  mutate(deaths = case_when(date == "2020-06-04" ~ NA_real_,
-                            date != "2020-06-04" ~ deaths))
+# df <- df %>% 
+#   mutate(deaths = case_when(date == "2020-06-04" ~ NA_real_,
+#                             date != "2020-06-04" ~ deaths))
 
 
 #The data reflected in these updates include info reported in the past 24 hours
 #as well as data since March 14 when the first case was reported in the county.
 #https://twitter.com/HealthAllegheny/status/1260587935289704449?s=20
-df <- df %>% 
-  mutate(deaths = case_when(date == "2020-05-13" ~ NA_real_,
-                            date != "2020-05-13" ~ deaths))
+# df <- df %>% 
+#   mutate(deaths = case_when(date == "2020-05-13" ~ NA_real_,
+#                             date != "2020-05-13" ~ deaths))
 
 #https://twitter.com/HealthAllegheny/status/1250801169989074944?s=20
-df <- df %>% 
-  mutate(deaths = case_when(date == "2020-04-16" ~ NA_real_,
-                            date != "2020-04-16" ~ deaths))
+# df <- df %>% 
+#   mutate(deaths = case_when(date == "2020-04-16" ~ NA_real_,
+#                             date != "2020-04-16" ~ deaths))
 
 #https://twitter.com/HealthAllegheny/status/1275805982522855424?s=20
-df <- df %>% 
-  mutate(deaths = case_when(date == "2020-06-24" ~ NA_real_,
-                            date != "2020-06-24" ~ deaths))
+# df <- df %>% 
+#   mutate(deaths = case_when(date == "2020-06-24" ~ NA_real_,
+#                             date != "2020-06-24" ~ deaths))
 
 
 df <- df %>% 
@@ -77,9 +94,16 @@ df <- df %>%
 
 #calculate rolling 14 day averages for cases/hospitalizations/deaths
 df <- df %>% 
+  select(state, county, date, contains("new")) %>% 
+  pivot_longer(cols = contains("new"), names_to = "metric", values_to = "value_new") %>% 
+  left_join(bad_data) %>% 
+  replace_na(list(flag_bad_data = FALSE)) %>% 
+  mutate(value_new_clean = case_when(flag_bad_data == TRUE ~ NA_real_,
+                                     flag_bad_data == FALSE ~ value_new)) %>% 
+  group_by(state, county, metric) %>% 
   tq_mutate(
     # tq_mutate args
-    select     = cases_new,
+    select     = value_new_clean,
     mutate_fun = rollapply, 
     # rollapply args
     width      = 14,
@@ -88,53 +112,31 @@ df <- df %>%
     # mean args
     na.rm      = TRUE,
     # tq_mutate args
-    col_rename = "cases_new_rolling_14"
+    col_rename = "value_new_rolling_14"
   ) %>% 
-  tq_mutate(
-    # tq_mutate args
-    select     = hospitalizations_new,
-    mutate_fun = rollapply, 
-    # rollapply args
-    width      = 14,
-    align      = "right",
-    FUN        = mean,
-    # mean args
-    na.rm      = TRUE,
-    # tq_mutate args
-    col_rename = "hospitalizations_new_rolling_14"
-  ) %>% 
-  tq_mutate(
-    # tq_mutate args
-    select     = deaths_new,
-    mutate_fun = rollapply, 
-    # rollapply args
-    width      = 14,
-    align      = "right",
-    FUN        = mean,
-    # mean args
-    na.rm      = TRUE,
-    # tq_mutate args
-    col_rename = "deaths_new_rolling_14"
-  )
+  ungroup()
 
 #glimpse(df)
 
 
 #pivot rolling average data longer
 df_rolling <- df %>% 
-  select(state, county, date, contains("rolling")) %>% 
-  pivot_longer(cols = contains("rolling"), names_to = "metric") %>% 
+  select(state, county, metric, date, contains("rolling")) %>% 
+  #pivot_longer(cols = contains("rolling"), names_to = "metric") %>% 
   mutate(metric = case_when(str_detect(metric, "cases") ~ "New cases",
                             str_detect(metric, "deaths") ~ "New deaths",
                             str_detect(metric, "hospitalizations") ~ "New hospitalizations")) %>% 
   mutate(metric = factor(metric, levels = c("New cases", "New hospitalizations", "New deaths")))
+
+df_rolling %>% 
+  write_csv("output/ac_timeline/data/ac_rolling_data_cleaned.csv")
 
 #glimpse(df_rolling)
 
 #pivot daily data longer
 df_new <- df %>% 
   select(state, county, date, !contains("rolling")) %>% 
-  pivot_longer(cols = contains("_new"), names_to = "metric") %>% 
+  #pivot_longer(cols = contains("_new"), names_to = "metric") %>% 
   mutate(metric = case_when(str_detect(metric, "cases") ~ "New cases",
                             str_detect(metric, "deaths") ~ "New deaths",
                             str_detect(metric, "hospitalizations") ~ "New hospitalizations")) %>% 
@@ -146,27 +148,29 @@ df_new <- df %>%
 ##filter out rows before first non-zero value
 df_new <- df_new %>% 
   arrange(state, county, metric, date) %>% 
+  mutate(value_new_clean = value_new) %>% 
   group_by(state, county, metric) %>% 
-  mutate(value = case_when(row_number() == 1 ~ 0,
-                           TRUE ~ value),
-         after_first_non_zero_value = cumsum(coalesce(value, 0) > 0) >= 1,
-         value = case_when(after_first_non_zero_value == FALSE ~ 0,
-                           TRUE ~ value)) %>% 
+  mutate(value_new_clean = case_when(row_number() == 1 & is.na(value_new_clean) ~ 0,
+                           TRUE ~ value_new_clean),
+         after_first_non_zero_value = cumsum(coalesce(value_new_clean, 0) > 0) >= 1,
+         value_new_clean = case_when(after_first_non_zero_value == FALSE ~ 0,
+                           TRUE ~ value_new_clean)) %>% 
   ungroup()
 
 #first(df_new$date)
 
 df_new <- df_new %>% 
   group_by(metric) %>% 
-  mutate(cumulative_max = cummax(coalesce(value, 0)),
-         new_record = value == cumulative_max,
+  mutate(cumulative_max = cummax(coalesce(value_new_clean, 0)),
+         new_record = value_new_clean == cumulative_max,
          new_record = case_when(after_first_non_zero_value == FALSE ~ FALSE,
-                                after_first_non_zero_value == TRUE ~ new_record)) %>% 
+                                after_first_non_zero_value == TRUE & flag_bad_data == TRUE ~ FALSE,
+                                after_first_non_zero_value == TRUE & flag_bad_data == FALSE ~ new_record)) %>% 
   ungroup()
 
 df_new <- df_new %>% 
-  mutate(value_clean = case_when(after_first_non_zero_value == FALSE ~ NA_real_,
-                                 TRUE ~ value))
+  mutate(value_new_clean = case_when(after_first_non_zero_value == FALSE ~ NA_real_,
+                                 TRUE ~ value_new_clean))
 
 # first(df_new$date)
 
@@ -187,8 +191,8 @@ last_updated <- last(df_rolling$date)
 
 #make graph
 allegheny_county_timeline <- df_rolling %>% 
-  filter(!is.na(value)) %>% 
-  ggplot(aes(date, value)) +
+  filter(!is.na(value_new_rolling_14)) %>% 
+  ggplot(aes(date, value_new_rolling_14)) +
   #create colored rectangles showing various government intervention timelines
   annotate(geom = "rect", xmin = ymd("2020-03-23"), xmax = ymd("2020-05-15"), ymin = as.Date(-Inf), ymax = as.Date(Inf), 
            fill = "red", alpha = .3) +
@@ -199,10 +203,11 @@ allegheny_county_timeline <- df_rolling %>%
   annotate(geom = "rect", xmin = ymd("2020-06-28"), xmax = as.Date(Inf), ymin = as.Date(-Inf), ymax = as.Date(Inf),
            fill = "#aaff00", alpha = .3) +
   #plot daily data as points, rolling average as lines
-  geom_point(data = df_new, aes(y = value_clean), alpha = .3)+
+  geom_point(data = df_new, aes(y = value_new_clean, alpha = flag_bad_data)) +
   geom_line(size = 1.5) +
   #facet by metric
   facet_wrap(~metric, ncol = 1, scales = "free_y") +
+  scale_alpha_manual(values = c(.3, .05), guide = FALSE) +
   labs(title = str_c("Allegheny County COVID-19 response timeline (last updated ", last_updated, ")"),
        x = NULL,
        y = NULL,
@@ -248,7 +253,7 @@ make_combined_graph <- function(choose_metric){
   
   main_graph <- df_rolling %>% 
     filter(metric == choose_metric) %>% 
-    ggplot(aes(date, value)) +
+    ggplot(aes(date, value_new_rolling_14)) +
     #create colored rectangles showing various government intervention timelines
     annotate(geom = "rect", xmin = ymd("2020-03-23"), xmax = ymd("2020-05-15"), ymin = as.Date(-Inf), ymax = as.Date(Inf),
              fill = "red", alpha = .3) +
@@ -259,12 +264,13 @@ make_combined_graph <- function(choose_metric){
     annotate(geom = "rect", xmin = ymd("2020-06-28"), xmax = as.Date(Inf), ymin = as.Date(-Inf), ymax = as.Date(Inf),
              fill = "#aaff00", alpha = .3) +
     #plot daily data as points, rolling average as lines
-    geom_point(data = filter(df_new, metric == choose_metric),  aes(y = value_clean), alpha = .3)+
+    geom_point(data = filter(df_new, metric == choose_metric), aes(y = value_new_clean, alpha = flag_bad_data)) +
     geom_line(size = 1.5) +
     #geom_vline(data = filter(df_new, metric == choose_metric, new_record == TRUE), aes(xintercept = date), color = "red") +
     #facet by metric
     facet_wrap(~metric, ncol = 1, scales = "free_y") +
     scale_y_continuous(breaks = scales::pretty_breaks()) +
+    scale_alpha_manual(values = c(.3, .05), guide = FALSE) +
     labs(x = NULL,
          y = NULL) +
     theme(plot.margin = unit(c(0, 0, 0, 0), "cm"),
@@ -291,6 +297,9 @@ combined_graph <- main_graph + sub_graph +
   plot_layout(design = layout)
 }
 
+make_combined_graph(choose_metric = "New cases") %>% 
+  print()
+
 plots <- df_rolling %>% 
   mutate(metric = as.character(metric)) %>% 
   distinct(metric) %>% 
@@ -307,4 +316,3 @@ final_plot <- wrap_plots(plots, ncol = 1) +
 
 final_plot %>% 
   ggsave(filename = str_c("output/ac_timeline/combined/combo_graph_", last_updated , ".png"), width = 12, height = 8)
-
