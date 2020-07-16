@@ -57,13 +57,14 @@ df <- df %>%
   select(state, county, date, contains("new")) %>% 
   pivot_longer(cols = contains("new"), names_to = "metric", values_to = "value_new") %>% 
   left_join(bad_data) %>% 
-  replace_na(list(flag_bad_data = FALSE)) %>% 
-  mutate(value_new_clean = case_when(flag_bad_data == TRUE ~ NA_real_,
-                                     flag_bad_data == FALSE ~ value_new)) %>% 
+  replace_na(list(flag_bad_data = FALSE))
+
+
+df_rolling <- df %>% 
   group_by(state, county, metric) %>% 
   tq_mutate(
     # tq_mutate args
-    select     = value_new_clean,
+    select     = value_new,
     mutate_fun = rollapply, 
     # rollapply args
     width      = 14,
@@ -79,9 +80,9 @@ df <- df %>%
 #glimpse(df)
 
 
-#pivot rolling average data longer
-df_rolling <- df %>% 
-  select(state, county, metric, date, contains("rolling")) %>% 
+#create df for rolling average data
+df_rolling <- df_rolling %>% 
+  select(state, county, metric, date, value_new, contains("rolling")) %>% 
   #pivot_longer(cols = contains("rolling"), names_to = "metric") %>% 
   mutate(metric = case_when(str_detect(metric, "cases") ~ "New cases",
                             str_detect(metric, "deaths") ~ "New deaths",
@@ -93,7 +94,9 @@ df_rolling %>%
 
 #glimpse(df_rolling)
 
-#pivot daily data longer
+#create df for daily data
+
+
 df_new <- df %>% 
   select(state, county, date, !contains("rolling")) %>% 
   #pivot_longer(cols = contains("_new"), names_to = "metric") %>% 
@@ -104,13 +107,14 @@ df_new <- df %>%
 
 #first(df_new$date)
 
+
 #identify first non-zero value in each metric.
 ##filter out rows before first non-zero value
 df_new <- df_new %>% 
   arrange(state, county, metric, date) %>% 
   mutate(value_new_clean = value_new) %>% 
   group_by(state, county, metric) %>% 
-  mutate(value_new_clean = case_when(row_number() == 1 & is.na(value_new_clean) ~ 0,
+  mutate(value_new_cl = case_when(row_number() == 1 & is.na(value_new_clean) ~ 0,
                            TRUE ~ value_new_clean),
          after_first_non_zero_value = cumsum(coalesce(value_new_clean, 0) > 0) >= 1,
          value_new_clean = case_when(after_first_non_zero_value == FALSE ~ 0,
@@ -118,7 +122,7 @@ df_new <- df_new %>%
   ungroup()
 
 #first(df_new$date)
-
+#calculate new records
 df_new <- df_new %>% 
   group_by(metric) %>% 
   mutate(cumulative_max = cummax(coalesce(value_new_clean, 0)),
@@ -153,7 +157,7 @@ allegheny_county_timeline <- df_rolling %>%
   geom_line(size = 1.5) +
   #facet by metric
   facet_wrap(~metric, ncol = 1, scales = "free_y") +
-  scale_alpha_manual(values = c(.3, .05), guide = FALSE) +
+  scale_alpha_manual(values = c(.3, .1), guide = FALSE) +
   labs(title = str_c("Allegheny County COVID-19 response timeline (last updated ", last_updated, ")"),
        x = NULL,
        y = NULL,
