@@ -21,7 +21,6 @@ set.seed(1234)
 census_data <- get_acs(geography = "state", variables = "B01003_001", geometry = FALSE) %>% 
   select(state = NAME, population = estimate)
 
-census_data
 
 covid <- read_csv("https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-states.csv") %>% 
   arrange(state, date) %>% 
@@ -70,7 +69,6 @@ covid_list <- covid %>%
   select(state, cases_per_capita_scaled) %>% 
   unstack(cases_per_capita_scaled ~ state)
 
-
 #loop through clustering algorithm 20 times
 cluster_dtw_h <- list()
 
@@ -84,9 +82,10 @@ for (i in 2:number_of_clusters){
                                 distance = "dtw", 
                                 control = hierarchical_control(method = "complete"), 
                                 seed = 390, 
-                                preproc = NULL#, 
-                                #args = tsclust_args(dist = list(window.size = 5L)
-  )
+                                preproc = NULL, 
+                                args = tsclust_args(dist = list(window.size = 21L)))
+  
+  print(i)
 }
 
 
@@ -116,24 +115,24 @@ get_cluster_assigments <- function(object, cluster_number){
 cluster_assigments <- 2:number_of_clusters %>%
   set_names() %>% 
   map_df(~get_cluster_assigments(cluster_dtw_h, cluster_number = .x), .id = "kclust") %>% 
-  pivot_longer(cols = -kclust, names_to = "state") %>% 
+  pivot_longer(cols = -kclust, names_to = "state", values_to = "cluster_assignment") %>% 
   mutate(kclust = as.numeric(kclust)) %>% 
   arrange(state, kclust)
 
 ##review cluster assigments
 state_variance <- cluster_assigments %>% 
-  distinct(state, value) %>% 
+  distinct(state, cluster_assignment) %>% 
   count(state, sort = TRUE)
 
 cluster_assigments %>%
   left_join(state_variance) %>% 
   mutate(state = fct_reorder(state, n)) %>% 
-  ggplot(aes(kclust, state, fill = as.factor(value))) +
+  ggplot(aes(kclust, state, fill = as.factor(cluster_assignment))) +
   geom_tile() +
   scale_fill_viridis_d()
 
 cluster_assigments %>% 
-  distinct(state, value) %>% 
+  distinct(state, cluster_assignment) %>% 
   count(state) %>% 
   mutate(state = fct_reorder(state, n)) %>% 
   ggplot(aes(n, state)) +
@@ -142,16 +141,18 @@ cluster_assigments %>%
 
 #cluster 6 is the first with a singelton cluster
 cluster_assigments %>% 
-  count(kclust, value) %>% 
+  count(kclust, cluster_assignment) %>% 
   group_by(kclust) %>% 
   mutate(min_cluster_population = min(n)) %>% 
   ungroup() %>% 
   #filter(min_clusters > 2) %>% 
-  count(kclust, min_cluster_population)
+  count(kclust, min_cluster_population) %>% 
+  mutate(first_singleton = cumsum(min_cluster_population == 1) == 1) %>% 
+  filter(first_singleton == TRUE)
 
 cluster_assigments %>% 
-  count(kclust, value) %>% 
-  ggplot(aes(kclust, n, color = as.factor(value))) +
+  count(kclust, cluster_assignment) %>% 
+  ggplot(aes(kclust, n, color = as.factor(cluster_assignment))) +
   geom_jitter(show.legend = FALSE)
 
 #function to get cluster metrics
@@ -176,7 +177,7 @@ get_cluster_metrics <- function(object, cluster_number){
   ggplot(aes(kclust, av_dist)) +
   geom_jitter(aes(color = as.factor(kclust), size = size), show.legend = FALSE) +
   geom_smooth(group = 1) +
-  geom_vline(xintercept = 9, linetype = 2) +
+  geom_vline(xintercept = 8, linetype = 2) +
   scale_size_continuous(range = c(.5, 4))
 
 #figure out way to find kclust with biggest decrease in av_dist with fewest singleton clusters
@@ -204,14 +205,12 @@ get_cluster_datalist <- function(object, cluster_number){
 #compare silhouettes of clusters
 big_comparison_plot <- covid %>% 
   as_tibble() %>% 
-  #left_join(filter(cluster_assigments, kclust == 2)) %>% 
   left_join(cluster_assigments) %>% 
-  #filter(between(kclust, 10, 15)) %>% 
   ggplot(aes(days_since_10th_case, cases_per_capita_scaled, 
-             color = as.factor(value), group = state)) +
+             color = as.factor(cluster_assignment), group = state)) +
   geom_line() +
   geom_hline(yintercept = 0, linetype = 2) +
-  facet_grid(kclust~as.factor(value))
+  facet_grid(kclust~as.factor(cluster_assignment))
 
 big_comparison_plot %>% 
   ggsave(filename = "output/time_series_clustering/comparison_plot.png", width = 24, height = 24)
@@ -219,7 +218,7 @@ big_comparison_plot %>%
 
 
 
-best_kclust <- 9
+best_kclust <- 8
 
 cluster_assigments %>% 
   filter(kclust == best_kclust)
@@ -228,14 +227,14 @@ covid %>%
   as_tibble() %>% 
   left_join(filter(cluster_assigments, kclust == best_kclust)) %>% 
   ggplot(aes(days_since_10th_case, cases_per_capita_scaled, 
-             color = as.factor(value), group = state)) +
+             color = as.factor(cluster_assignment), group = state)) +
   geom_line() +
   #geom_line(data = filter(covid, state == "Alaska") %>% 
   #            left_join(filter(cluster_assigments, kclust == best_kclust)), 
   #          size = 1, color = "black") +
   geom_hline(yintercept = 0, linetype = 2) +
-  geom_vline(xintercept = 75, linetype = 2) +
-  facet_wrap(kclust~as.factor(value), ncol = 4)
+  geom_vline(xintercept = 60, linetype = 2) +
+  facet_wrap(kclust~as.factor(cluster_assignment), ncol = 4)
 
 #map
 # census_vars <- load_variables(dataset = "acs1", year = 2018)
@@ -246,35 +245,50 @@ covid %>%
 
 map <- get_acs(geography = "state", variables = "B01003_001", geometry = TRUE, shift_geo = TRUE)
 
-map %>% 
-  ggplot() +
-  geom_sf(aes(fill = estimate)) +
-  scale_fill_viridis_c()
-
 cluster_assigments %>% 
   filter(kclust == best_kclust)
 
-map %>% 
+map_cluster <- map %>% 
+  left_join(cluster_assigments %>% 
+             filter(kclust == best_kclust), by = c("NAME" = "state")) %>% 
+  add_count(cluster_assignment) %>% 
+  mutate(cluster_assignment = as.character(cluster_assignment),
+         cluster_assignment = fct_reorder(cluster_assignment, desc(n))) %>% 
+  group_by(cluster_assignment) %>% 
+  summarize()
+
+state_clustered <- map %>% 
   left_join(cluster_assigments %>% 
               filter(kclust == best_kclust), by = c("NAME" = "state")) %>% 
-  add_count(value) %>% 
-  mutate(value = as.character(value),
-         value = fct_reorder(value, desc(n))) %>% 
-  group_by(value) %>% 
-  summarize() %>% 
+  add_count(cluster_assignment) %>% 
+  mutate(cluster_assignment = as.character(cluster_assignment),
+         cluster_assignment = fct_reorder(cluster_assignment, desc(n)))
+
+map_cluster %>% 
   ggplot() +
-  geom_sf(aes(fill = value)) +
-  geom_sf_label(aes(label = value))
+  geom_sf(aes(fill = cluster_assignment),
+          size = 1) +
+  geom_sf(data = map, color = "grey", size = .1, alpha = 0) +
+  geom_sf_label(data = state_clustered, 
+                aes(label = cluster_assignment, color = cluster_assignment), 
+                alpha = .8,
+                size = 3,
+                show.legend = FALSE)
 
 cluster_assigments %>% 
   filter(kclust == best_kclust) %>% 
-  count(value, sort = TRUE) %>% 
-  mutate(value = as.character(value),
-         value = fct_reorder(value, desc(n))) %>% 
-  ggplot(aes(n, value, fill = value)) +
+  count(cluster_assignment, sort = TRUE) %>% 
+  mutate(cluster_assignment = as.character(cluster_assignment),
+         cluster_assignment = fct_reorder(cluster_assignment, desc(n))) %>% 
+  ggplot(aes(n, cluster_assignment, fill = cluster_assignment)) +
   geom_col(color = "black", show.legend = FALSE)
 
 cluster_assigments %>% 
   filter(kclust == best_kclust) %>% 
   View()
 
+covid %>% 
+  left_join(cluster_assigments) %>% 
+  mutate(days_since_10th_case = as.numeric(days_since_10th_case)) %>% 
+  pivot_longer(cols = contains("cases"), names_to = "metric", values_to = "value") %>% 
+  write_csv("output/time_series_clustering/time_series_data_clustered.csv")
