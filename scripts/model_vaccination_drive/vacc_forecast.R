@@ -23,7 +23,7 @@ options(scipen = 999, digits = 4)
 #https://github.com/govex/COVID-19/blob/master/data_tables/vaccine_data/us_data/data_dictionary.csv
 
 #set date range to examine.
-date_seq <- seq.Date(from = ymd("2020-12-01"), to = ymd("2022-12-01"), by = "day")
+date_seq <- seq.Date(from = ymd("2020-12-01"), to = ymd("2022-08-01"), by = "day")
 
 #download data from JHU
 
@@ -37,7 +37,7 @@ vacc_data_raw <- read_csv("https://raw.githubusercontent.com/govex/COVID-19/mast
   complete(date = date_seq, province_state) %>% 
   #sort by state and date
   arrange(province_state, date)
-  
+
 #there are cases where the cumulative sum of vaccinations for a given state actually decreases. 
 #i think this is because of interruptions due to the nation-wide winter storm in February
 #other instances could be attributed to changes in methodology for tracking vaccine distribution
@@ -57,8 +57,8 @@ vacc_data_raw %>%
   ungroup() %>% 
   filter(less_than_prev == T) %>% 
   count(province_state, less_than_prev, sort = T) 
-  
-#this is an example from alaba,a
+
+#this is an example from alabama
 vacc_data_raw %>% 
   mutate(less_than_prev = stage_one_doses < lag(stage_one_doses, 1)) %>% 
   filter(date >= "2021-02-10", date < "2021-02-13",
@@ -66,7 +66,7 @@ vacc_data_raw %>%
   arrange(province_state, date) %>% 
   View()
 
-#replace NA values of stage_one_doses with NA if it is before the current date
+#replace NA values of stage_one_doses with 0 if it is before the current date
 vacc_data <- vacc_data_raw %>% 
   mutate(stage_one_doses = case_when(date < ymd(Sys.Date()) & is.na(stage_one_doses) ~ 0,
                                      !is.na(stage_one_doses) ~ stage_one_doses,
@@ -74,6 +74,7 @@ vacc_data <- vacc_data_raw %>%
   arrange(province_state, date)
 
 #this shows the cumulative sum of first doses by province_state
+#there is a spike in Pennsylvania around april 18th that went back down
 vacc_data %>% 
   filter(date <= ymd(Sys.Date())) %>% 
   ggplot(aes(date, stage_one_doses, group = province_state)) +
@@ -109,92 +110,221 @@ vacc_data_rolling <- vacc_data %>%
 
 
 
-
+#this recalculates the cumulative sum of first doses using the trailing average instead of the raw data
 vacc_forecast <- vacc_data_rolling %>% 
   fill(stage_one_doses_new_rolling, .direction = "down") %>%
   mutate(future_flag = date >= ymd(Sys.Date())) %>%
-  mutate(stage_one_doses_new_rolling_forecast = cumsum(coalesce(stage_one_doses_new_rolling, 0))) %>% 
-  # mutate(prediction = case_when(future_flag == T ~ cumsum(coalesce(stage_one_doses_new_rolling, 0)),
-  #                               future_flag == F ~ NA_real_)) %>% 
+  mutate(stage_one_doses_new_rolling_forecast = cumsum(coalesce(stage_one_doses_new_rolling, 0)))
+
+vacc_forecast %>% 
+  filter(future_flag == F) %>% 
+  ggplot(aes(date, stage_one_doses_new_rolling_forecast)) +
+  geom_line() +
+  scale_y_comma()
+
+#this calculates the total first dose vaccination pct
+vacc_forecast <- vacc_forecast %>% 
   mutate(total_pop = 332410303) %>% 
   mutate(vacc_pct = stage_one_doses_new_rolling_forecast / total_pop)
 
-
-
+#at the current rate we should hit 90% around July 13th
 vacc_forecast %>% 
   filter(vacc_pct > .9) %>% 
   slice(1)
 
 vacc_forecast %>% 
+  filter(date <= ymd(Sys.Date()) + 120) %>% 
   ggplot(aes(x = date)) +
   geom_line(aes(y = vacc_pct, color = future_flag)) +
   geom_hline(yintercept = .9, lty = 2) +
   scale_y_percent(limits = c(0, 1), breaks = c(0, .25, .5, .75, .9, 1)) +
   labs(y = "Pct with 1 vaccination")
 
-month_filters <- seq(from = ymd("2021-02-01"), to = ymd("2021-06-01"), by = "week")
+#create a list of dates to filter the data by
+month_filters <- c(seq(from = ymd("2021-02-01"), to = ymd("2021-04-01"), by = "month"), Sys.Date())
 
-
-animated_vaccine_forecast <- month_filters %>% 
+#for each date in the list, filter the data against it
+#this creates 4 dataframes each only containing data up until the given filter date
+vaccine_forecast_data <- month_filters %>% 
   set_names() %>% 
   map(~filter(vacc_data_rolling, date <= .x)) %>% 
   enframe(name = "last_date", value = "historical_data") %>% 
   mutate(last_date = ymd(last_date),
-         current_week = last_date == max(last_date)) %>% 
+         current_week = last_date == max(last_date))
+
+vaccine_forecast_data
+
+vaccine_forecast_data <- vaccine_forecast_data %>% 
   unnest(historical_data) %>% 
   group_by(last_date) %>% 
+  #for each filter date table, create rows for the rest of the date range
   complete(date = date_seq) %>% 
   fill(stage_one_doses_new_rolling, current_week, .direction = "down") %>% 
-  mutate(future_flag = date >= last_date) %>%
+  #create a flag for whether a row is observed or predicted
+  #create a flag for whether a row is after the current date
+  mutate(prediction_flag = date >= last_date,
+         future_flag = date > Sys.Date()) %>%
+  #for each filter date, roll the 7 day moving average of vaccination rate forward
   mutate(stage_one_doses_new_rolling_forecast = cumsum(coalesce(stage_one_doses_new_rolling, 0))) %>% 
   mutate(total_pop = 332410303) %>% 
-  mutate(vacc_pct = stage_one_doses_new_rolling_forecast / total_pop) %>% 
-  filter(vacc_pct < 1)
+  #calculate vaccination %
+  mutate(vacc_pct = stage_one_doses_new_rolling_forecast / total_pop,
+         vacc_pct = round(vacc_pct, 3)) %>% 
+  filter(vacc_pct <= 1.1) %>% 
+  ungroup()
 
-animated_vaccine_forecast <- animated_vaccine_forecast %>% 
+vaccine_forecast_data
+
+vaccine_forecast_data <- vaccine_forecast_data %>% 
+  mutate(total_vacc_flag = vacc_pct >= 1) %>% 
+  group_by(last_date) %>% 
+  mutate(total_vacc_date = case_when(cumsum(total_vacc_flag) >= 1 ~ date,
+                                     TRUE ~ NA_Date_)) %>% 
+  filter(cumsum(!is.na(total_vacc_date)) <= 1) %>% 
+  ungroup()
+  
+vaccine_forecast_data <- vaccine_forecast_data %>% 
+  mutate(current_week_fct = case_when(current_week == F ~ "Past hypothetical rate",
+                                      current_week == T ~ "Current rate"))
+
+#secondary tables for labeling
+current_vacc_percent <- vaccine_forecast_data %>% 
+  filter(current_week == T, date == ymd(Sys.Date())) %>% 
+  select(last_date, date, current_week, vacc_pct)
+
+current_vacc_percent_label <- current_vacc_percent %>% 
+  mutate(text_label = str_c("Current", scales::percent(vacc_pct), sep = ": "))
+
+#for gif
   #create labels for current vaccination rate line, NA for last row
   mutate(current_rate_label = case_when(current_week == T & date != max(date) ~ str_c("Current rate:", scales::percent(vacc_pct, 1), sep = " "),
                                         TRUE ~ "")) %>% 
   #create labels for lines where current_week == F
-  #group_by(last_date) %>% 
-  mutate(total_vacc_label = case_when(date == max(date) & last_date == min(last_date) ~ as.character(date),
-                                      TRUE ~ "")) #%>% 
-  #ungroup()
 
-animated_vaccine_forecast_anim <- animated_vaccine_forecast %>% 
-  ggplot(aes(x = date, y = vacc_pct,
-             group = last_date)) +
+
+
+
+
+
+
+
+filter(vaccine_forecast_data, prediction_flag == F, current_week == T, future_flag == F) %>% 
+  ggplot(aes(date, vacc_pct)) +
+  geom_line()
+
+#static graph
+vaccine_forecast_graph <- vaccine_forecast_data %>% 
+  ggplot(aes(x = date, y = vacc_pct, group = last_date)) +
+  #90% line
   geom_hline(yintercept = .9, lty = 2) +
-  geom_line(aes(color = future_flag,  
-                alpha = current_week)) +
-  geom_point(data = filter(animated_vaccine_forecast, current_week == T),
+  annotate(x = ymd("2020-10-15"), y = .92,
+           label = "Herd Immunity Threshhold", geom = "text", size = 3) +
+  #past cumulative line
+  geom_line(data = filter(vaccine_forecast_data, current_week == T, date <= Sys.Date()),
+            color = "black", lty = 1, size = .7) +
+  #future cumulative lines
+  geom_line(data = filter(vaccine_forecast_data, prediction_flag == T),
+            aes(color = as.factor(last_date)),
+            size = 1.3)  +
+  # horizontal line showing current vacc rate
+  geom_hline(data = current_vacc_percent,
+             aes(yintercept = vacc_pct),
+             size = .1) +
+  #add labels for date of 100% vaccination for the first and last filter dates
+  geom_label(data = filter(vaccine_forecast_data,
+                           last_date == min(last_date) | last_date == max(last_date)),
+             aes(label = total_vacc_date,
+                 color = as.factor(last_date)),
+             show.legend = FALSE,
+             fill = "grey",
+             position = position_nudge(y = .05),
+             size = 3) +
+  # label for horizontal line showing current vacc rate
+  geom_text(data = current_vacc_percent_label,
+            aes(label = text_label),
+            position = position_nudge(x = -220, y = .02),
+            size = 3) +
+  scale_y_percent(limits = c(0, 1.1), breaks = c(0, .25, .5, .75, .9, 1)) +
+  scale_alpha_manual(values = c(1, .5)) +
+  scale_color_viridis_d(labels = c("February 1", "March 1", "April 1", "April 20")) +
+  guides(color = guide_legend(override.aes = list(fill = NA))) +
+  labs(title = "Historic and Current U.S. Vaccination Forecasts",
+       x = NULL,
+       y = "Single Dose Vaccination %",
+       color = "Projection start date")
+
+vaccine_forecast_graph
+
+ggsave(vaccine_forecast_graph, filename = "scripts/model_vaccination_drive/output/vaccination_drive_forecast.png")
+
+
+#animation
+vaccine_forecast_data %>% 
+  ggplot(aes(x = date, y = vacc_pct, group = last_date)) +
+  #90% line
+  geom_hline(yintercept = .9, lty = 2) +
+  #past cumulative line
+  geom_line(data = filter(vaccine_forecast_data, future_flag == F, current_week == T),
+            color = "black", lty = 1, size = .7) +
+  #future cumulative line
+  geom_line(data = filter(vaccine_forecast_data, prediction_flag == T),
+            aes(size = current_week_fct,
+                alpha = current_week_fct),
+            color = "blue", lty = 2)  +
+  geom_hline(data = current_vacc_percent,
+             aes(yintercept = vacc_pct)) +
+  geom_point(data = filter(vaccine_forecast_data, current_week == T),
              aes(color = future_flag),
              size = 3) +
-  geom_text(aes(label = total_vacc_label),
-             position = position_nudge(y = .03)
-             ) +
-  geom_text(data = filter(animated_vaccine_forecast, current_week == T),
-             aes(label = current_rate_label),
-             position = position_nudge(x = -30)) +
+  geom_text(data = filter(vaccine_forecast_data,
+                          last_date == min(last_date) | last_date == max(last_date)),
+            aes(label = total_vacc_date),
+            position = position_nudge(y = .05),
+            size = 6) +
+  #horizontal line showing current vacc rate
+  geom_text(data = current_vacc_percent_label,
+            aes(label = text_label),
+            position = position_nudge(x = -80, y = .01),
+            size = 6) +
   scale_y_percent(limits = c(0, 1.1), breaks = c(0, .25, .5, .75, .9, 1)) +
-  scale_alpha_manual(values = c(.3, 1)) +
-  scale_color_manual(values = c("black", "blue")) +
-  labs(title = "Historic and Current Vaccination Forecasts",
-       subtitle = "% of US with at least one dose",
+  scale_color_manual(values = c("black", "blue"),
+                     #labels = c("Past hypothetical", "Current rate")
+  ) +
+  scale_size_manual(values = c(.8, .3),
+                    #labels = c("Past hypothetical", "Current rate")
+  ) +
+  scale_alpha_manual(values = c(1, .7),
+                     #labels = c("Past hypothetical", "Current rate")
+  ) +
+  guides(color = FALSE) +
+  labs(title = "Historic and Current U.S. Vaccination Forecasts",
        x = NULL,
-       y = "Vaccination %",
-       alpha = "Last Date",
-       color = NULL) +
-  theme_ipsum(base_size = 20) +
+       y = "Single Dose Vaccination %",
+       size = NULL,
+       alpha = NULL
+  )
+
+vaccine_forecast_graph_anim <- vaccine_forecast_graph +
+  #current rate % label
+  geom_text(data = filter(vaccine_forecast_data, 
+                          current_week == T,
+                          vacc_pct >= .25),
+            aes(label = current_rate_label),
+            position = position_nudge(x = -70, y = 0),
+            size = 6) +
+  theme_ipsum(base_size = 15,
+              axis_title_size = 20) +
   transition_reveal(date)
 
+gif_fps <- 30
+
 anim_save(filename = "scripts/model_vaccination_drive/output/vaccination_drive_forecast.gif",
-          animated_vaccine_forecast_anim,
-          duration = 10,
-          nframes = 50,
-          height = 1000,
-          width = 1500,
-          end_pause = 5
+          vaccine_forecast_graph_anim,
+          duration = 15,
+          fps = gif_fps,
+          height = 800,
+          width = 1000,
+          end_pause = gif_fps * 4
 )
 
 
